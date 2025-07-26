@@ -5,6 +5,7 @@ from loguru import logger
 from video.storage import Storage
 from youtube_transcript_api import YouTubeTranscriptApi
 
+SERVICE_URL = os.environ["COOLIFY_URL"]
 storage_path = os.getenv("STORAGE_PATH", os.path.join(os.path.abspath(os.getcwd()), "media"))
 
 storage = Storage(

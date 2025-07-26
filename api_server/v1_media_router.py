@@ -41,6 +41,7 @@ def iterfile(path: str):
 
 v1_media_api_router = APIRouter()
 
+SERVICE_URL = os.environ["COOLIFY_URL"]
 storage_path = os.getenv("STORAGE_PATH", os.path.join(os.path.abspath(os.getcwd()), "media"))
 
 storage = Storage(
