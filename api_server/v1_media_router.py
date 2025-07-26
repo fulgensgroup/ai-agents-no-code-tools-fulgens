@@ -332,7 +332,8 @@ def merge_videos(
     background_tasks.add_task(bg_task)
     logger.info(f"Background task added for video merge with ID: {merged_video_id}")
 
-    return {"file_id": merged_video_id}
+    return {"file_id": merged_video_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + merged_video_id,}
 
 
 @v1_media_api_router.get('/fonts')
@@ -582,6 +583,7 @@ def generate_captioned_video(
 
     return {
         "file_id": output_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + output_id,
     }
 
 @v1_media_api_router.post("/video-tools/generate/subtitle-blue-screen")
@@ -821,6 +823,7 @@ def add_colorkey_overlay(
     
     return {
         "file_id": output_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + output_id,
     }
 
 @v1_media_api_router.get("/video-tools/extract-frame/{video_id}")

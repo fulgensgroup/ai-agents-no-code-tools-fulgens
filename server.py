@@ -4,6 +4,9 @@ from fastapi import FastAPI, APIRouter
 import sys
 from loguru import logger
 
+import os
+SERVICE_URL = os.environ["COOLIFY_URL"]
+
 from api_server.auth_middleware import auth_middleware
 from api_server.v1_utils_router import v1_utils_router
 from api_server.v1_media_router import v1_media_api_router

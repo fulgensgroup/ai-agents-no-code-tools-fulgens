@@ -118,6 +118,7 @@ def image_unaize(
     background_tasks.add_task(bg_task)
     return {
         "file_id": jpg_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + jpg_id,
     }
 
 @v1_utils_router.post("/convert/pcm/wav")
@@ -163,5 +164,6 @@ def convert_pcm_to_wav(
     
     return {
         "file_id": wav_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + wav_id,}
     }
 
