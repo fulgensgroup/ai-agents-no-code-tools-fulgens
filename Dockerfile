@@ -11,6 +11,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Rebuild the font cache
+COPY fonts /usr/share/fonts/truetype/custom/
+RUN fc-cache -fv
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
