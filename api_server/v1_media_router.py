@@ -24,6 +24,12 @@ from moviepy import (
     CompositeAudioClip,
     CompositeVideoClip,
 )
+import re
+import textwrap
+from PIL import ImageFont
+from matplotlib import font_manager
+import json
+import subprocess
 
 CHUNK_SIZE = 1024 * 1024 * 10  # 10MB chunks
 
@@ -577,6 +583,185 @@ def generate_captioned_video(
     return {
         "file_id": output_id,
     }
+
+@v1_media_api_router.post("/video-tools/generate/subtitle-blue-screen")
+def generate_subtitle_blue_screen(
+    background_tasks: BackgroundTasks,
+    text: Optional[str] = Form(
+        "Subtitle text\ngoes here", description="Legacy string format"
+    ),
+    lines_json: Optional[str] = Form(
+        None, description="JSON-encoded list of lines"
+    ),
+    width: Optional[int] = Form(1080),
+    height: Optional[int] = Form(1920),
+    font: Optional[str] = Form("ARIALNB"),
+    font_size: Optional[int] = Form(60),
+    margin_left: Optional[int] = Form(100),
+    margin_right: Optional[int] = Form(300),  # Right-side UI safe zone
+    margin_bottom: Optional[int] = Form(250),  # Bottom margin
+    background_id: Optional[str] = Form(None),
+):
+    """
+    Generate a 1s caption video
+    """
+    output_id, output_path = storage.create_media_filename_with_id(
+        media_type="video", file_extension=".mp4"
+    )
+
+    def find_font_path(font_name: str) -> str:
+        matches = [
+            f.fname
+            for f in font_manager.fontManager.ttflist
+            if (font_name + ".ttf").lower() in f.fname.lower()
+        ]
+        if matches:
+            return matches[0]
+        raise FileNotFoundError(
+            f"Font '{font_name}' not found in system font cache."
+        )
+
+    def smart_wrap_text(
+        text: str,
+        font_name: str,
+        font_size: int,
+        max_width: int,
+        indent_spaces: int = 8,
+    ) -> str:
+        font = ImageFont.truetype(find_font_path(font_name), font_size)
+        indent = " " * indent_spaces
+
+        lines = []
+        current_line = ""
+        for word in text.split():
+            test_line = current_line + " " + word if current_line else word
+            width = font.getlength(test_line)
+            if width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = indent + word
+
+        if current_line:
+            lines.append(current_line)
+
+        return "\n".join(lines)
+
+    def generate_subtitle_card(
+        text: str,
+        width: int,
+        height: int,
+        font: str,
+        font_size: int,
+        margin_left: int,
+        margin_right: int,
+        margin_bottom: int,
+    ) -> str:
+        duration = 1
+        fps = 30
+        stroke_color = "black"
+        stroke_width = 3
+        text_color = "white"
+        bg_color = (0, 0, 255)
+        max_text_width = width - margin_left - margin_right
+
+        if background_id:
+            img = storage.get_media_path(background_id)
+            from moviepy import vfx
+
+            bg = ImageClip(img, duration=duration).with_effects(
+                [vfx.Resize((width, height))]
+            )
+        else:
+            bg = ColorClip(
+                size=(width, height), color=bg_color, duration=duration
+            )
+
+        txt_clip = TextClip(
+                text=text,
+                font_size=font_size,
+                font=font,
+                color=text_color,
+                stroke_color=stroke_color,
+                stroke_width=stroke_width,
+                method="label",
+                size=(max_text_width, None),
+                text_align="left",
+                interline=4,
+                margin=(20, 20),
+            ).with_duration(duration)
+            # Determine available height for caption zone
+        # Caption zone: bottom 2/3 of screen
+        caption_zone_top = height // 3
+        caption_zone_height = (2 * height) // 3 - margin_bottom
+
+        # Vertically center the text within this zone
+        text_y = caption_zone_top + (caption_zone_height - txt_clip.h) // 2
+
+        # Set position
+        txt_clip = txt_clip.with_position((margin_left, text_y))
+
+        final = CompositeVideoClip([bg, txt_clip])
+        final.write_videofile(
+            output_path, fps=fps, codec="libx264", audio=False, logger=None
+        )
+        return output_path
+
+    if lines_json:
+        try:
+            lines = json.loads(lines_json)
+            if not isinstance(lines, list):
+                raise ValueError(
+                    "lines_json must decode to a list of strings."
+                )
+            mode = "lines_json"
+        except Exception as e:
+            return {"error": f"Invalid lines_json: {e}"}
+    else:
+        import re
+
+        text = re.sub(r"\\n", "\n", text)
+        mode = "text"
+
+    max_text_width = width - margin_left - margin_right
+
+    if mode == "lines_json":
+        wrapped_lines = [
+            smart_wrap_text(
+                line,
+                font_name=font,
+                font_size=font_size,
+                max_width=max_text_width,
+                indent_spaces=8,
+            )
+            for line in lines
+        ]
+        final_text = "\n".join(wrapped_lines)
+    elif mode == "text":
+        final_text = smart_wrap_text(
+            text,
+            font_name=font,
+            font_size=font_size,
+            max_width=max_text_width,
+            indent_spaces=0,
+        )
+
+    video_path = generate_subtitle_card(
+        text=final_text,
+        width=width,
+        height=height,
+        font=font,
+        font_size=font_size,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_bottom=margin_bottom,
+    )
+    return {
+        "file_id": output_id,
+        "url": SERVICE_URL + "/api/v1/media/storage/" + output_id,
+    }
+
 
 # https://ffmpeg.org/ffmpeg-filters.html#colorkey
 @v1_media_api_router.post("/video-tools/add-colorkey-overlay")

@@ -14,3 +14,4 @@ matplotlib
 Pillow
 nltk
 imageio
+moviepy
