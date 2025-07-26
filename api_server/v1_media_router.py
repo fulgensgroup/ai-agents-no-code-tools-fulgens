@@ -14,6 +14,17 @@ from video.media import MediaUtils
 from video.builder import VideoBuilder
 from utils.image import resize_image_cover
 
+from moviepy import (
+    TextClip,
+    ColorClip,
+    CompositeVideoClip,
+    ImageClip,
+    VideoFileClip,
+    AudioFileClip,
+    CompositeAudioClip,
+    CompositeVideoClip,
+)
+
 CHUNK_SIZE = 1024 * 1024 * 10  # 10MB chunks
 
 def iterfile(path: str):
@@ -339,6 +350,9 @@ def generate_captioned_video(
     height: Optional[int] = Form(
         1920, description="Height of the video (default: 1920)"
     ),
+    generate_captions: Optional[bool] = Form(
+        True, description="Use STT to generate captions"
+    ),
     audio_id: Optional[str] = Form(
         None, description="Audio ID for the video (optional)"
     ),
@@ -377,32 +391,33 @@ def generate_captioned_video(
     parsed_subtitle_options = {}
     
     # Only include non-None values
-    if caption_config_line_count is not None:
-        parsed_subtitle_options['lines'] = caption_config_line_count
-    if caption_config_line_max_length is not None:
-        parsed_subtitle_options['max_length'] = caption_config_line_max_length
-    if caption_config_font_size is not None:
-        parsed_subtitle_options['font_size'] = caption_config_font_size
-    if caption_config_font_name is not None:
-        parsed_subtitle_options['font_name'] = caption_config_font_name
-    if caption_config_font_bold is not None:
-        parsed_subtitle_options['font_bold'] = caption_config_font_bold
-    if caption_config_font_italic is not None:
-        parsed_subtitle_options['font_italic'] = caption_config_font_italic
-    if caption_config_font_color is not None:
-        parsed_subtitle_options['font_color'] = caption_config_font_color
-    if caption_config_subtitle_position is not None:
-        parsed_subtitle_options['subtitle_position'] = caption_config_subtitle_position
-    if caption_config_shadow_color is not None:
-        parsed_subtitle_options['shadow_color'] = caption_config_shadow_color
-    if caption_config_shadow_transparency is not None:
-        parsed_subtitle_options['shadow_transparency'] = caption_config_shadow_transparency
-    if caption_config_shadow_blur is not None:
-        parsed_subtitle_options['shadow_blur'] = caption_config_shadow_blur
-    if caption_config_stroke_color is not None:
-        parsed_subtitle_options['stroke_color'] = caption_config_stroke_color
-    if caption_config_stroke_size is not None:
-        parsed_subtitle_options['stroke_size'] = caption_config_stroke_size
+    if generate_captions:
+        if caption_config_line_count is not None:
+            parsed_subtitle_options['lines'] = caption_config_line_count
+        if caption_config_line_max_length is not None:
+            parsed_subtitle_options['max_length'] = caption_config_line_max_length
+        if caption_config_font_size is not None:
+            parsed_subtitle_options['font_size'] = caption_config_font_size
+        if caption_config_font_name is not None:
+            parsed_subtitle_options['font_name'] = caption_config_font_name
+        if caption_config_font_bold is not None:
+            parsed_subtitle_options['font_bold'] = caption_config_font_bold
+        if caption_config_font_italic is not None:
+            parsed_subtitle_options['font_italic'] = caption_config_font_italic
+        if caption_config_font_color is not None:
+            parsed_subtitle_options['font_color'] = caption_config_font_color
+        if caption_config_subtitle_position is not None:
+            parsed_subtitle_options['subtitle_position'] = caption_config_subtitle_position
+        if caption_config_shadow_color is not None:
+            parsed_subtitle_options['shadow_color'] = caption_config_shadow_color
+        if caption_config_shadow_transparency is not None:
+            parsed_subtitle_options['shadow_transparency'] = caption_config_shadow_transparency
+        if caption_config_shadow_blur is not None:
+            parsed_subtitle_options['shadow_blur'] = caption_config_shadow_blur
+        if caption_config_stroke_color is not None:
+            parsed_subtitle_options['stroke_color'] = caption_config_stroke_color
+        if caption_config_stroke_size is not None:
+            parsed_subtitle_options['stroke_size'] = caption_config_stroke_size
     
     if audio_id and not storage.media_exists(audio_id):
         return JSONResponse(
@@ -451,7 +466,8 @@ def generate_captioned_video(
         
         if tts_audio_id:
             audio_path = storage.get_media_path(tts_audio_id)
-            captions = stt.transcribe(audio_path=audio_path, language=language)[0]
+            if generate_captions:
+                captions = stt.transcribe(audio_path=audio_path, language=language)[0]
             builder.set_audio(audio_path)
         # generate TTS and set audio
         else:
@@ -459,60 +475,61 @@ def generate_captioned_video(
                 media_type="audio", file_extension=".wav"
             )
             tmp_file_ids.append(tts_audio_id)
-            captions = tts_manager.kokoro(
-                text=text,
-                output_path=audio_path,
-                voice=kokoro_voice,
-                speed=kokoro_speed,
-            )[0]
-            if international:
-                # use whisper to create captions
-                iso_lang_code = lang_config.get("iso639_1")
-                captions = stt.transcribe(audio_path=audio_path, language=iso_lang_code)[0]
+            if generate_captions:
+                captions = tts_manager.kokoro(
+                    text=text,
+                    output_path=audio_path,
+                    voice=kokoro_voice,
+                    speed=kokoro_speed,
+                )[0]
+                if international:
+                    # use whisper to create captions
+                    iso_lang_code = lang_config.get("iso639_1")
+                    captions = stt.transcribe(audio_path=audio_path, language=iso_lang_code)[0]
             
             builder.set_audio(audio_path)
 
         # create subtitle
-        captionsManager = Caption()
-        subtitle_id, subtitle_path = storage.create_media_filename_with_id(
-            media_type="tmp", file_extension=".ass"
-        )
-        tmp_file_ids.append(subtitle_id)
-        
-        # create segments based on language
-        if international:
-            segments = captionsManager.create_subtitle_segments_english(
-                captions=captions,
-                lines=parsed_subtitle_options.get('lines', parsed_subtitle_options.get("lines", 1)),
-                max_length=parsed_subtitle_options.get('max_length', parsed_subtitle_options.get("max_length", 1)),
+        if generate_captions:
+            captionsManager = Caption()
+            subtitle_id, subtitle_path = storage.create_media_filename_with_id(
+                media_type="tmp", file_extension=".ass"
             )
-        else:
-            segments = captionsManager.create_subtitle_segments_international(
-                captions=captions,
-                lines=parsed_subtitle_options.get('lines', parsed_subtitle_options.get('lines', 1)),
-                max_length=parsed_subtitle_options.get('max_length', parsed_subtitle_options.get('max_length', 1)),
-            )
-        
-        captionsManager.create_subtitle(
-            segments=segments,
-            output_path=subtitle_path,
-            dimensions=dimensions,
+            tmp_file_ids.append(subtitle_id)
+            # create segments based on language
+            if international:
+                segments = captionsManager.create_subtitle_segments_english(
+                    captions=captions,
+                    lines=parsed_subtitle_options.get('lines', parsed_subtitle_options.get("lines", 1)),
+                    max_length=parsed_subtitle_options.get('max_length', parsed_subtitle_options.get("max_length", 1)),
+                )
+            else:
+                segments = captionsManager.create_subtitle_segments_international(
+                    captions=captions,
+                    lines=parsed_subtitle_options.get('lines', parsed_subtitle_options.get('lines', 1)),
+                    max_length=parsed_subtitle_options.get('max_length', parsed_subtitle_options.get('max_length', 1)),
+                )
+            
+            captionsManager.create_subtitle(
+                segments=segments,
+                output_path=subtitle_path,
+                dimensions=dimensions,
 
-            font_size=parsed_subtitle_options.get('font_size', 120),
-            shadow_blur=parsed_subtitle_options.get('shadow_blur', 10),
-            stroke_size=parsed_subtitle_options.get('stroke_size', 5),
-            shadow_color=parsed_subtitle_options.get('shadow_color', "#000"),
-            stroke_color=parsed_subtitle_options.get('stroke_color', "#000"),
-            font_name=parsed_subtitle_options.get('font_name', "Arial"),
-            font_bold=parsed_subtitle_options.get('font_bold', True),
-            font_italic=parsed_subtitle_options.get('font_italic', False),
-            subtitle_position=parsed_subtitle_options.get('subtitle_position', "top"),
-            font_color=parsed_subtitle_options.get('font_color', "#fff"),
-            shadow_transparency=parsed_subtitle_options.get('shadow_transparency', 0.4),
-        )
-        builder.set_captions(
-            file_path=subtitle_path,
-        )
+                font_size=parsed_subtitle_options.get('font_size', 120),
+                shadow_blur=parsed_subtitle_options.get('shadow_blur', 10),
+                stroke_size=parsed_subtitle_options.get('stroke_size', 5),
+                shadow_color=parsed_subtitle_options.get('shadow_color', "#000"),
+                stroke_color=parsed_subtitle_options.get('stroke_color', "#000"),
+                font_name=parsed_subtitle_options.get('font_name', "Arial"),
+                font_bold=parsed_subtitle_options.get('font_bold', True),
+                font_italic=parsed_subtitle_options.get('font_italic', False),
+                subtitle_position=parsed_subtitle_options.get('subtitle_position', "top"),
+                font_color=parsed_subtitle_options.get('font_color', "#fff"),
+                shadow_transparency=parsed_subtitle_options.get('shadow_transparency', 0.4),
+            )
+            builder.set_captions(
+                file_path=subtitle_path,
+            )
 
         # resize background image if needed
         background_path = storage.get_media_path(background_id)
