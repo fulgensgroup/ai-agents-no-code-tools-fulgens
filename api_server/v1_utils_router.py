@@ -164,6 +164,6 @@ def convert_pcm_to_wav(
     
     return {
         "file_id": wav_id,
-        "url": SERVICE_URL + "/api/v1/media/storage/" + wav_id,}
+        "url": SERVICE_URL + "/api/v1/media/storage/" + wav_id,
     }
 
